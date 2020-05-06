@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using bilbasen.Shared.Models;
+using bilbasen.Shared.Util;
 using HtmlAgilityPack;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Azure.WebJobs;
@@ -19,7 +20,7 @@ namespace bilbasen.Search
         public const string SearchFunctionName = "BilBasen_Search";
 
         [FunctionName(SearchFunctionName)]
-        public static async Task<List<SearchResult>> SayHello([ActivityTrigger] string searchPhrase, ILogger log)
+        public static async Task<List<SearchResult>> SayHello([ActivityTrigger] SearchAndNotification searchPhrase, ILogger log)
         {
             try 
             {
@@ -39,10 +40,10 @@ namespace bilbasen.Search
                         HtmlDocument pageDocument = new HtmlDocument();
                         pageDocument.LoadHtml(pageContents);
 
-                        res.AddRange(ParseHtml(pageDocument, log).Where(sr => sr.Model.Equals(searchPhrase, StringComparison.InvariantCultureIgnoreCase)));
+                        res.AddRange(ParseHtml(pageDocument, log).Where(sr => sr.Model.Equals(searchPhrase.Model, StringComparison.InvariantCultureIgnoreCase)));
                     }
 
-                    log.LogInformation($"Search: Found {res.Count} matches for {searchPhrase}");
+                    log.LogInformation($"Search: Found {res.Count} matches for {searchPhrase.Model}");
 
                     return res;
                 }
@@ -69,6 +70,8 @@ namespace bilbasen.Search
                 var id = href?.Split('/').LastOrDefault();
                 var linkText = linkNode.InnerHtml.Split("  ");
 
+                var (model, trim) = GetModelAndTrim(linkText);
+                
                 var dataNodes = row.Descendants("div").Where(n => n.HasAttributes && n.Attributes["class"] != null && n.Attributes["class"].Value.Contains("listing-data")).ToList();
  
                 var success = int.TryParse(dataNodes[2].InnerHtml.Replace(".", ""), out var kmDriven);
@@ -85,8 +88,8 @@ namespace bilbasen.Search
                 {
                     Id = id,
                     Href = href,
-                    Model = linkText[0],
-                    Trim = linkText[1],
+                    Model = model,
+                    Trim = trim,
                     KmDriven = kmDriven,
                     Year = year,
                     Price = price,
@@ -96,16 +99,37 @@ namespace bilbasen.Search
             return searchResults;
         }
 
-        static string GetUrl(string searchPhrase, int page)
+        private static (string model, string trim) GetModelAndTrim(string[] linkText)
         {
+            if (linkText.Count() == 2)
+            {
+                return (linkText[0], linkText[1]);
+            }
+
+            return (linkText[0], "");
+        }
+
+        static string GetUrl(SearchAndNotification searchPhrase, int page)
+        {
+            var modelAndTrim = searchPhrase.Model;
+
+            if (!string.IsNullOrWhiteSpace(searchPhrase.Trim) && !Constants.AnyTrim.Equals(searchPhrase.Trim, StringComparison.InvariantCultureIgnoreCase))
+                modelAndTrim += $" {searchPhrase.Trim}";
+
             var queryParams = new Dictionary<string, string>()
             {
                 {"IncludeEngrosCVR", "true"},
                 {"PriceFrom", "0"},
                 {"includeLeasing", "false"},
-                {"free", searchPhrase},
+                {"free", searchPhrase.Model},
                 {"page", page.ToString()}
             };
+
+            if (!string.IsNullOrWhiteSpace(searchPhrase.EarliestYear))
+                queryParams.Add("YearFrom", searchPhrase.EarliestYear);
+
+            if (!string.IsNullOrWhiteSpace(searchPhrase.MaxKmDriven))
+                queryParams.Add("MileageTo", searchPhrase.MaxKmDriven);
 
             return QueryHelpers.AddQueryString(BaseSearchUrl, queryParams);
         }

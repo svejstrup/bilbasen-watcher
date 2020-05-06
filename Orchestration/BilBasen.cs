@@ -19,7 +19,7 @@ namespace memex.bilbasen
 {
     public class TableAndSearchData
     {
-        public SearchPhrase SearchPhrase {get; set;}
+        public SearchAndNotification SearchPhrase {get; set;}
         public Task<List<SearchResultEntity>> TableData {get; set;}
         public Task<List<SearchResult>> CurrentData {get; set;}
     }
@@ -32,8 +32,9 @@ namespace memex.bilbasen
         {
             try 
             {
-                var searchPhrases = await context.CallActivityAsync<List<SearchPhrase>>(TableStorageDataManager.GetSearchPhrasesFunctionName, null);
-                log.LogInformation("BilBasen: Start waiting for results");
+                var searchAndNotifications = await context.CallActivityAsync<List<SearchAndNotification>>(TableStorageDataManager.GetSearchPhrasesFunctionName, null);
+                var searchPhrases = searchAndNotifications.Where(sn => sn.SearchOrNotification == Constants.SearchType);
+                var notificationTriggers = searchAndNotifications.Where(sn => sn.SearchOrNotification == Constants.NotificationType);
 
                 var searchTasks = searchPhrases.Select(searchPhrase => 
                 {
@@ -41,26 +42,33 @@ namespace memex.bilbasen
                     {
                         SearchPhrase = searchPhrase,
                         TableData = context.CallActivityAsync<List<SearchResultEntity>>(TableStorageDataManager.GetByPartitionKeyFunctionName, (searchPhrase.Model, TableName.Cars)),
-                        CurrentData = context.CallActivityAsync<List<SearchResult>>(BilBasenSearcher.SearchFunctionName, searchPhrase.Model)
+                        CurrentData = context.CallActivityAsync<List<SearchResult>>(BilBasenSearcher.SearchFunctionName, searchPhrase)
                     };
                 });
 
-                var triggeredNotifications = new List<SearchResultEntity>();
+                var triggeredNotifications = new List<TriggeredNotification>();
 
                 foreach(var task in searchTasks)
                 {
                     var tableData = await task.TableData;
                     var currentData = await task.CurrentData;
+                    var triggersForModel = notificationTriggers
+                        .Where(nt => nt.Model.Equals(task.SearchPhrase.Model, StringComparison.InvariantCultureIgnoreCase))
+                        .ToList();
                     
                     var (entitiesToUpsert, newResults) = GetEntitiesToUpdate(tableData, currentData);
 
-                    triggeredNotifications.AddRange(newResults.Where(nr => IsNotificationTriggered(nr, task.SearchPhrase)));
+                    triggeredNotifications.AddRange(newResults.SelectMany(nr => GetTriggeredNotifications(nr, triggersForModel)));
 
                     await context.CallActivityAsync("TableStorage_BatchInsert", entitiesToUpsert);
                 }
 
                 if (triggeredNotifications.Any())
-                    await context.CallActivityAsync(EmailNotifier.NotifyFunctionName, triggeredNotifications);
+                {
+                    var emails = EmailNotifier.BuildEmails(triggeredNotifications);
+
+                    await Task.WhenAll(emails.Select(e => context.CallActivityAsync(EmailNotifier.NotifyFunctionName, e)));
+                }
             }
             catch(Exception e)
             {
@@ -69,13 +77,30 @@ namespace memex.bilbasen
             }
         }
 
-        private static bool IsNotificationTriggered(SearchResultEntity searchResult, SearchPhrase searchPhrase)
+        private static List<TriggeredNotification> GetTriggeredNotifications(SearchResultEntity searchResult, List<SearchAndNotification> triggers)
         {
-            var triggered = searchResult.Price < searchPhrase.PriceThreshold;
-            triggered &= searchPhrase.SendMail;
-            triggered &= (searchPhrase.Trim == Constants.AnyTrim || searchResult.Trim.Equals(searchPhrase.Trim, StringComparison.InvariantCultureIgnoreCase));
+            var notifications = new List<TriggeredNotification>();
 
-            return triggered;
+            foreach(var trigger in triggers)
+            {
+                var triggered = true;
+
+                if (trigger.PriceThreshold.HasValue)
+                    triggered &= searchResult.Price < trigger.PriceThreshold;
+
+                if (!string.IsNullOrWhiteSpace(trigger.EarliestYear) && int.TryParse(trigger.EarliestYear, out var triggerYear))
+                    triggered &= searchResult.Year >= triggerYear;
+
+                if (!string.IsNullOrWhiteSpace(trigger.MaxKmDriven) && int.TryParse(trigger.MaxKmDriven, out var triggerKm))
+                    triggered &= searchResult.KmDriven <= triggerKm;
+                    
+                triggered &= (trigger.Trim.Equals(Constants.AnyTrim, StringComparison.InvariantCultureIgnoreCase) || searchResult.Trim.Equals(trigger.Trim, StringComparison.InvariantCultureIgnoreCase));
+
+                if (triggered)
+                    notifications.Add(new TriggeredNotification {Car = searchResult, Email = trigger.Email});
+            }
+
+            return notifications;
         }
 
         private static (List<ITableEntity>, List<SearchResultEntity>) GetEntitiesToUpdate(List<SearchResultEntity> tableData, List<SearchResult> currentData)

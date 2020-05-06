@@ -124,12 +124,12 @@ namespace bilbasen.DAL
         }
 
         [FunctionName(GetSearchPhrasesFunctionName)]
-        public static async Task<List<SearchPhrase>> GetSearchPhrases([ActivityTrigger] ILogger log)
+        public static async Task<List<SearchAndNotification>> GetSearchPhrases([ActivityTrigger] ILogger log)
         {
             try 
             {
                 var table = await GetCloudTableFromName(TableName.Search);
-                var query = new TableQuery<SearchPhrase>();
+                var query = new TableQuery<SearchAndNotification>();
 
                 var queryResult = await table.ExecuteQuerySegmentedAsync(query, null);
                 
