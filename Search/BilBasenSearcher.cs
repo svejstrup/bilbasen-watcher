@@ -40,7 +40,7 @@ namespace bilbasen.Search
                         HtmlDocument pageDocument = new HtmlDocument();
                         pageDocument.LoadHtml(pageContents);
 
-                        res.AddRange(ParseHtml(pageDocument, log).Where(sr => sr.Model.Equals(searchPhrase.Model, StringComparison.InvariantCultureIgnoreCase)));
+                        res.AddRange(ParseHtml(pageDocument, searchPhrase.Model, log).Where(sr => sr.Model.Equals(searchPhrase.Model, StringComparison.InvariantCultureIgnoreCase)));
                     }
 
                     log.LogInformation($"Search: Found {res.Count} matches for {searchPhrase.Model}");
@@ -55,7 +55,7 @@ namespace bilbasen.Search
             }
         }
 
-        static List<SearchResult> ParseHtml(HtmlDocument htmlDocument, ILogger log)
+        static List<SearchResult> ParseHtml(HtmlDocument htmlDocument, string searchModel, ILogger log)
         {
             var rows = htmlDocument.DocumentNode.SelectNodes("(//div[contains(@class,'bb-listing-clickable')])");
 
@@ -70,7 +70,7 @@ namespace bilbasen.Search
                 var id = href?.Split('/').LastOrDefault();
                 var linkText = linkNode.InnerHtml.Split("  ");
 
-                var (model, trim) = GetModelAndTrim(linkText);
+                var (model, trim) = GetModelAndTrim(linkText, searchModel);
                 
                 var dataNodes = row.Descendants("div").Where(n => n.HasAttributes && n.Attributes["class"] != null && n.Attributes["class"].Value.Contains("listing-data")).ToList();
  
@@ -99,11 +99,20 @@ namespace bilbasen.Search
             return searchResults;
         }
 
-        private static (string model, string trim) GetModelAndTrim(string[] linkText)
+        private static (string model, string trim) GetModelAndTrim(string[] linkText, string searchModel)
         {
+            // model and trim are usually separated by a double space
             if (linkText.Count() == 2)
             {
                 return (linkText[0], linkText[1]);
+            }
+            
+            // Handle case where only a single space separates model and trim
+            var modelAndTrim = linkText[0];
+            if (modelAndTrim.Contains(searchModel, StringComparison.InvariantCultureIgnoreCase))
+            {
+                var trim = modelAndTrim.Replace(searchModel, "").Trim();
+                return (searchModel, trim);
             }
 
             return (linkText[0], "");
@@ -137,7 +146,7 @@ namespace bilbasen.Search
         static void LogIfUnsuccessful(ILogger log, bool success, string html)
         {
             if (!success)
-                log.LogWarning($"Unable to parse {html}");
+                log.LogWarning($"Search: Unable to parse HTML: \"{html}\"");
         }
     }
 }
