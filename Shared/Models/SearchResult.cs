@@ -14,6 +14,8 @@ namespace bilbasen.Shared.Models
         public int KmDriven {get; set;}
         public int Year {get; set;}
         public int Price {get; set;}
+        public string Description {get; set;}
+        public string Region {get; set;}
     }
 
     public class SearchResultEntity : SearchResult, ITableEntity

@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Extensions.Logging;
+using System.Web;
+using System.IO;
 
 namespace bilbasen.Search
 {
@@ -84,6 +86,17 @@ namespace bilbasen.Search
                 success = int.TryParse(priceHtml.Replace(" kr.", "").Replace(".",""), out var price);
                 LogIfUnsuccessful(log, success, priceHtml);
 
+                var descriptionEncoded = row.Descendants("div").FirstOrDefault(n => n.HasAttributes && n.Attributes["class"] != null && n.Attributes["class"].Value.Contains("listing-description"))?.InnerHtml;
+
+                StringWriter myWriter = new StringWriter();
+                HttpUtility.HtmlDecode(descriptionEncoded, myWriter);
+                string description = myWriter.ToString();
+
+                myWriter = new StringWriter();
+                var regionEncoded = row.Descendants("div").FirstOrDefault(n => n.HasAttributes && n.Attributes["class"] != null && n.Attributes["class"].Value.Contains("listing-region"))?.InnerHtml;
+                HttpUtility.HtmlDecode(regionEncoded, myWriter);
+                var region = myWriter.ToString();
+
                 return new SearchResult 
                 {
                     Id = id,
@@ -93,6 +106,8 @@ namespace bilbasen.Search
                     KmDriven = kmDriven,
                     Year = year,
                     Price = price,
+                    Description = description,
+                    Region = region
                 };
             }).Where(x => x != null).ToList();
 

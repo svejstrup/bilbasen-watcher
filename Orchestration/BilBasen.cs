@@ -121,6 +121,8 @@ namespace memex.bilbasen
                     currTableData.LastSeen = DateTimeOffset.UtcNow;
                     currTableData.Price = searchResult.Price;
                     currTableData.KmDriven = searchResult.KmDriven;
+                    currTableData.Description = searchResult.Description;
+                    currTableData.Region = searchResult.Region;
 
                     return currTableData;
                 }
