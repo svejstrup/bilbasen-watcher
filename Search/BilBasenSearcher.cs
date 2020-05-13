@@ -145,7 +145,7 @@ namespace bilbasen.Search
                 {"IncludeEngrosCVR", "true"},
                 {"PriceFrom", "0"},
                 {"includeLeasing", "false"},
-                {"free", searchPhrase.Model},
+                {"free", modelAndTrim},
                 {"page", page.ToString()}
             };
 
