@@ -137,7 +137,7 @@ namespace memex.bilbasen
 
         [FunctionName("BilBasen_TimerStart")]
         public static async Task TimerStart(
-            [TimerTrigger("0 0 */10 * * *", RunOnStartup=true)] TimerInfo timer,
+            [TimerTrigger("0 0 */10 * * *")] TimerInfo timer,
             [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
